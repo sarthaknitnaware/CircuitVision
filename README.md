@@ -1,8 +1,7 @@
-# Circuit Vision — Offline
-### Hand-drawn circuit schematic → SPICE netlist → Simulation · **No API calls**
+# Circuit Vision
+### Hand-drawn circuit schematic → SPICE netlist → Simulation
 
 Fully local pipeline using YOLOv8 for component detection and OpenCV for wire tracing.
-Identical output to the API version — same UI, same netlist format, same grading engine.
 
 ---
 
@@ -28,7 +27,6 @@ Then open **http://127.0.0.1:5001**
 | Tesseract OCR | `brew install tesseract` |
 | YOLOv8 weights | Copy `best.pt` → `models/best.pt` |
 
-No API key needed. No internet required after `pip install`.
 
 ---
 
@@ -46,7 +44,7 @@ python app.py
 
 ## First-time setup: map your YOLO class names
 
-Your `best.pt` was trained with specific class names. Check what they are:
+Our `best.pt` was trained with specific class names. Check what they are:
 
 ```bash
 python check_classes.py
@@ -114,7 +112,7 @@ The wire tracing pipeline has several parameters you can adjust in `app.py`:
 
 ## Grading mode
 
-Identical to the API version. Upload a reference circuit, upload student circuits,
+Upload a reference circuit, upload student circuits,
 grade individually or in batch. Configurable rubric weights. Export reports as `.txt`.
 
 Grading uses only the topology graph and component data — it does not depend on
@@ -126,31 +124,16 @@ the detection method (YOLO or API), so grades are directly comparable.
 
 ```
 circuit-vision-offline/
-├── app.py                  ← Full pipeline (YOLO + OpenCV, no API)
+├── app.py                  ← Full pipeline (YOLO + OpenCV)
 ├── requirements.txt
 ├── run.sh                  ← One-command macOS launcher
 ├── check_classes.py        ← Prints your model's class names
 ├── yolo_classes.json       ← Maps YOLO class names → CV type strings
 ├── models/
-│   └── best.pt             ← Your trained YOLOv8 weights (copy here)
+│   └── best.pt             ← Your trained YOLOv8 weights (you can add your own model)
 └── templates/
-    └── index.html          ← Identical UI to the API version
+    └── index.html          ← web-based UI for the project
 ```
-
----
-
-## Differences from the API version
-
-| | API version | Offline version |
-|---|---|---|
-| Component detection | Claude Sonnet (vision) | YOLOv8 `best.pt` |
-| Value reading | Claude Sonnet (OCR in prompt) | Tesseract |
-| Node assignment | Claude Sonnet (wire tracing in prompt) | OpenCV skeleton + flood fill |
-| Topology / netlist / simulation | Local Python | Identical |
-| Grading engine | Local Python | Identical |
-| Cost per analysis | ~$0.02–0.03 | $0.00 |
-| Works offline | No | Yes |
-| Accuracy on messy drawings | Higher | Lower — depends on image quality |
 
 ---
 
