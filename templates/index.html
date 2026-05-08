@@ -1,0 +1,1688 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Circuit Vision — Hand-drawn → Netlist → Simulation</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0e0f11;--bg2:#161820;--bg3:#1e2028;
+  --border:rgba(255,255,255,0.08);--border2:rgba(255,255,255,0.14);
+  --ink:#e8e9ec;--muted:#7a7d8a;
+  --accent:#2ee8a0;--blue:#5ba4f5;--purple:#b57af7;
+  --red:#f06060;--orange:#e07b39;--green:#2ee8a0;
+  --radius:10px;--mono:'JetBrains Mono','Fira Code',ui-monospace,monospace
+}
+body{background:var(--bg);color:var(--ink);font-family:var(--mono);font-size:13px;min-height:100vh;line-height:1.5}
+.app{max-width:1420px;margin:0 auto;padding:28px 24px 60px}
+header{border-bottom:.5px solid var(--border);padding-bottom:18px;margin-bottom:28px;display:flex;align-items:baseline;gap:16px;flex-wrap:wrap}
+header h1{font-size:17px;font-weight:600;letter-spacing:.03em}
+header .sub{font-size:11px;color:var(--muted)}
+.desc-badge{font-size:10px;color:var(--muted);background:var(--bg3);border:.5px solid var(--border);padding:3px 10px;border-radius:20px;max-width:560px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pill{display:inline-block;padding:2px 10px;border-radius:20px;font-size:10px;font-weight:600;background:rgba(46,232,160,.12);color:var(--accent);border:.5px solid rgba(46,232,160,.25)}
+.grid2{display:grid;grid-template-columns:380px 1fr;gap:20px}
+@media(max-width:900px){.grid2{grid-template-columns:1fr}}
+.panel{background:var(--bg2);border:.5px solid var(--border);border-radius:var(--radius);padding:18px;margin-bottom:20px}
+.panel-title{font-size:10px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:14px;display:flex;align-items:center;gap:8px}
+.upload-zone{display:block;border:1.5px dashed var(--border2);border-radius:var(--radius);padding:28px 16px;text-align:center;cursor:pointer;transition:border-color .2s,background .2s;background:var(--bg3);user-select:none}
+.upload-zone:hover,.upload-zone.over{border-color:var(--accent);background:rgba(46,232,160,.04)}
+.upload-zone p{font-size:12px;color:var(--muted)}
+.img-wrap{border-radius:var(--radius);overflow:hidden;border:.5px solid var(--border);margin-top:12px;background:var(--bg3)}
+.img-wrap img{width:100%;display:block;max-height:340px;object-fit:contain}
+.btn{display:inline-flex;align-items:center;gap:6px;padding:7px 14px;font-size:12px;font-weight:500;border:.5px solid var(--border2);border-radius:7px;background:var(--bg3);color:var(--ink);cursor:pointer;transition:background .15s;font-family:var(--mono)}
+.btn:hover{background:rgba(255,255,255,.06)}
+.btn:active{transform:scale(.98)}
+.btn-primary{background:rgba(46,232,160,.12);color:var(--accent);border-color:rgba(46,232,160,.3)}
+.btn-primary:hover{background:rgba(46,232,160,.2)}
+.btn-sm{padding:5px 10px;font-size:11px}
+.actions{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;align-items:center}
+.step-list{list-style:none}
+.step-list li{display:flex;gap:10px;align-items:flex-start;padding:7px 0;border-bottom:.5px solid var(--border)}
+.step-list li:last-child{border-bottom:none}
+.step-dot{width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:600;flex-shrink:0;border:1.5px solid var(--border2);color:var(--muted)}
+.dot-wait{background:var(--bg3)}
+.dot-active{background:rgba(91,164,245,.15);color:var(--blue);border-color:var(--blue);animation:pulse 1s infinite}
+.dot-done{background:rgba(46,232,160,.15);color:var(--accent);border-color:var(--accent)}
+.dot-warn{background:rgba(224,123,57,.15);color:var(--orange);border-color:var(--orange)}
+.dot-err{background:rgba(240,96,96,.15);color:var(--red);border-color:var(--red)}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
+.step-text{color:var(--ink);font-size:12px}
+.step-sub{font-size:10px;color:var(--muted);margin-top:1px}
+.progress-bar{width:100%;height:3px;background:var(--bg3);border-radius:2px;overflow:hidden;margin:10px 0 8px}
+.progress-fill{height:100%;background:linear-gradient(90deg,var(--accent),var(--blue));border-radius:2px;transition:width .4s ease}
+.log-box{background:var(--bg);border:.5px solid var(--border);border-radius:7px;padding:10px 12px;font-size:10px;max-height:130px;overflow-y:auto;line-height:1.7}
+.log-ok{color:var(--green)}.log-err{color:var(--red)}.log-info{color:var(--blue)}.log-warn{color:var(--orange)}
+.comp-tags{display:flex;flex-wrap:wrap;gap:5px;margin-top:10px}
+.comp-tag{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border:.5px solid var(--border2);border-radius:5px;font-size:10px;background:var(--bg3);cursor:default}
+.comp-tag:hover{border-color:var(--accent)}
+.comp-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+.missing-warn{display:flex;align-items:flex-start;gap:8px;padding:10px 12px;background:rgba(224,123,57,.1);border:.5px solid rgba(224,123,57,.3);border-radius:7px;font-size:11px;color:var(--orange);margin-bottom:14px}
+.missing-warn strong{display:block;margin-bottom:3px}
+.tabs{display:flex;border-bottom:.5px solid var(--border);margin-bottom:16px;gap:2px;flex-wrap:wrap}
+.tab{padding:8px 16px;font-size:11px;cursor:pointer;border-bottom:2px solid transparent;color:var(--muted);transition:color .15s;border-radius:5px 5px 0 0}
+.tab:hover{color:var(--ink)}.tab.active{color:var(--accent);border-bottom-color:var(--accent)}
+.tab-content{display:none}.tab-content.active{display:block}
+.netlist-box{background:var(--bg);border:.5px solid var(--border);border-radius:7px;padding:14px;font-size:11px;overflow-x:auto;white-space:pre;line-height:1.7;max-height:340px;overflow-y:auto}
+.netlist-box .cmt{color:var(--muted)}.netlist-box .kw{color:var(--blue)}.netlist-box .miss{color:var(--red);font-weight:600}
+.metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-bottom:16px}
+.metric{background:var(--bg3);border-radius:8px;padding:10px 13px}
+.metric-label{font-size:10px;color:var(--muted);margin-bottom:4px}
+.metric-value{font-size:20px;font-weight:600}.metric-unit{font-size:10px;color:var(--muted)}
+.chart-wrap{position:relative;width:100%;height:280px}
+.sim-legend{display:flex;gap:14px;flex-wrap:wrap;margin-top:8px}
+.sim-legend-item{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted)}
+.leg-line{width:22px;height:2px;border-radius:1px}
+#graphCanvas{width:100%;border:.5px solid var(--border);border-radius:7px;background:var(--bg);display:block;cursor:grab}
+#graphCanvas:active{cursor:grabbing}
+.adj-wrap{overflow-x:auto}
+.adj-matrix{border-collapse:collapse;font-size:11px}
+.adj-matrix th,.adj-matrix td{padding:4px 8px;border:.5px solid var(--border);text-align:center}
+.adj-matrix th{background:var(--bg3);color:var(--muted)}
+.adj-1{background:rgba(46,232,160,.15);color:var(--accent)}.adj-0{color:var(--bg3)}
+.param-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.param-row{display:flex;flex-direction:column;gap:4px}
+.param-label{font-size:10px;color:var(--muted)}
+.param-input{font-size:12px;padding:6px 9px;border:.5px solid var(--border2);border-radius:6px;background:var(--bg3);color:var(--ink);font-family:var(--mono);width:100%}
+.param-input:focus{outline:none;border-color:var(--accent)}
+.param-input.missing{border-color:var(--red)}
+.graph-stats{font-size:11px;color:var(--muted);margin-top:10px;line-height:1.7}
+.spinner{display:inline-block;width:11px;height:11px;border:1.5px solid var(--border2);border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.hidden{display:none!important}
+.flex-row{display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap}
+.spacer{flex:1}
+.graph-legend{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.graph-leg-item{display:inline-flex;align-items:center;gap:4px;font-size:9px;color:var(--muted);background:var(--bg3);padding:2px 7px;border-radius:4px;border:.5px solid var(--border)}
+.graph-leg-dot{width:8px;height:8px;border-radius:50%}
+.tooltip-box{position:fixed;background:var(--bg2);border:.5px solid var(--border2);border-radius:7px;padding:8px 12px;font-size:10px;line-height:1.7;pointer-events:none;z-index:999;display:none;max-width:200px}
+
+/* ── Mode toggle ── */
+.mode-toggle{display:flex;gap:0;border:.5px solid var(--border2);border-radius:8px;overflow:hidden;margin-bottom:20px}
+.mode-btn{flex:1;padding:8px 0;font-size:12px;font-weight:500;cursor:pointer;background:var(--bg3);color:var(--muted);border:none;font-family:var(--mono);transition:background .15s,color .15s}
+.mode-btn.active{background:rgba(46,232,160,.13);color:var(--accent)}
+/* ── Grade UI ── */
+.grade-badge{display:inline-flex;flex-direction:column;align-items:center;justify-content:center;width:80px;height:80px;border-radius:50%;border:3px solid var(--accent);background:rgba(46,232,160,.08);font-size:32px;font-weight:700;color:var(--accent);flex-shrink:0}
+.grade-total{font-size:11px;color:var(--muted);margin-top:4px}
+.criterion-row{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:.5px solid var(--border)}
+.criterion-row:last-child{border-bottom:none}
+.crit-name{width:160px;font-size:11px;color:var(--ink);flex-shrink:0}
+.crit-bar-wrap{flex:1;height:6px;background:var(--bg3);border-radius:3px;overflow:hidden}
+.crit-bar{height:100%;border-radius:3px;transition:width .5s ease}
+.crit-score{width:36px;text-align:right;font-size:11px;font-weight:600}
+.crit-weight{width:30px;text-align:right;font-size:10px;color:var(--muted)}
+.feedback-detail{font-size:10px;color:var(--muted);padding:4px 8px;background:var(--bg3);border-radius:5px;margin-top:4px;line-height:1.8}
+.fb-ok{color:var(--green)}.fb-warn{color:var(--orange)}.fb-err{color:var(--red)}
+.side-by-side{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media(max-width:700px){.side-by-side{grid-template-columns:1fr}}
+.circuit-slot{border:.5px dashed var(--border2);border-radius:var(--radius);padding:14px;background:var(--bg3)}
+.circuit-slot.has-data{border-color:var(--accent);border-style:solid;background:rgba(46,232,160,.04)}
+.slot-title{font-size:10px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-bottom:10px}
+.slot-summary{font-size:10px;color:var(--muted);line-height:1.7;margin-top:8px}
+.ref-saved-badge{display:inline-flex;align-items:center;gap:5px;font-size:10px;color:var(--accent);background:rgba(46,232,160,.1);border:.5px solid rgba(46,232,160,.25);border-radius:5px;padding:2px 9px;margin-left:8px}
+/* Rubric editor */
+.rubric-row{display:flex;align-items:center;gap:8px;margin-bottom:5px}
+.rubric-label{font-size:11px;color:var(--ink);width:160px;flex-shrink:0}
+.rubric-input{width:52px;padding:4px 7px;font-size:12px;border:.5px solid var(--border2);border-radius:5px;background:var(--bg3);color:var(--ink);font-family:var(--mono);text-align:right}
+.rubric-input:focus{outline:none;border-color:var(--accent)}
+.rubric-bar{flex:1;height:4px;background:var(--bg3);border-radius:2px;overflow:hidden}
+.rubric-bar-fill{height:100%;background:var(--accent);border-radius:2px;transition:width .2s}
+/* Batch rows */
+.batch-student-row{display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--bg3);border-radius:7px;border:.5px solid var(--border)}
+.batch-name-input{flex:1;padding:5px 9px;font-size:12px;border:.5px solid var(--border2);border-radius:5px;background:var(--bg2);color:var(--ink);font-family:var(--mono)}
+.batch-name-input:focus{outline:none;border-color:var(--accent)}
+.batch-result-row{display:flex;align-items:center;gap:10px;padding:7px 10px;border-bottom:.5px solid var(--border);font-size:11px}
+.batch-result-row:last-child{border-bottom:none}
+.batch-grade-pill{width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0}
+.batch-score-bar-wrap{width:80px;height:5px;background:var(--bg3);border-radius:3px;overflow:hidden;flex-shrink:0}
+.batch-score-bar{height:100%;border-radius:3px}
+</style>
+</head>
+<body>
+<div class="tooltip-box" id="tooltip"></div>
+<div class="app">
+<header>
+  <h1>⊙ Circuit Vision</h1>
+  <span class="sub">Hand-drawn schematic → component detection → netlist → simulation</span>
+  <span class="pill" id="modePill">5-stage pipeline</span>
+  <span class="desc-badge hidden" id="circuitDesc"></span>
+</header>
+
+<!-- Mode toggle -->
+<div class="mode-toggle">
+  <button class="mode-btn active" id="modeAnalyzeBtn" onclick="setMode('analyze')">⊙ Analyze circuit</button>
+  <button class="mode-btn"        id="modeGradeBtn"   onclick="setMode('grade')">✓ Grade student circuit</button>
+</div>
+
+<!-- ANALYZE MODE -->
+<div id="analyzeMode">
+
+<div class="grid2">
+  <!-- LEFT -->
+  <div>
+    <div class="panel">
+      <div class="panel-title">1 · Input circuit image</div>
+      <input type="file" id="fileInput" accept="image/*" style="display:none">
+      <div class="upload-zone" id="dropZone" onclick="document.getElementById('fileInput').click()">
+        <div style="font-size:32px;margin-bottom:8px">⊙</div>
+        <p id="dropZoneText">Click or drag to upload hand-drawn circuit</p>
+        <p style="font-size:10px;color:var(--muted);margin-top:4px">PNG · JPG · max 16 MB</p>
+      </div>
+      <div class="img-wrap hidden" id="previewWrap">
+        <img id="previewImg" src="" alt="Circuit preview">
+      </div>
+      <div class="actions">
+        <button class="btn btn-primary hidden" id="analyzeBtn" onclick="startPipeline()">
+          <span id="btnIcon">▶</span>
+          <span id="btnText">Analyze circuit</span>
+        </button>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">Pipeline status</div>
+      <ul class="step-list">
+        <li><span class="step-dot dot-wait" id="d0">1</span><div><div class="step-text">Vision — component detection</div><div class="step-sub" id="s0">waiting</div></div></li>
+        <li><span class="step-dot dot-wait" id="d1">2</span><div><div class="step-text">Topology extraction</div><div class="step-sub" id="s1">waiting</div></div></li>
+        <li><span class="step-dot dot-wait" id="d2">3</span><div><div class="step-text">Netlist generation</div><div class="step-sub" id="s2">waiting</div></div></li>
+        <li><span class="step-dot dot-wait" id="d3">4</span><div><div class="step-text">SPICE transient simulation</div><div class="step-sub" id="s3">waiting</div></div></li>
+        <li><span class="step-dot dot-wait" id="d4">5</span><div><div class="step-text">Component overlay render</div><div class="step-sub" id="s4">waiting</div></div></li>
+      </ul>
+      <div class="progress-bar"><div class="progress-fill" id="progressBar" style="width:0%"></div></div>
+      <div class="log-box" id="logBox"></div>
+    </div>
+  </div>
+
+  <!-- RIGHT -->
+  <div>
+    <div class="panel">
+      <div class="panel-title">2 · Component detection overlay</div>
+      <div class="img-wrap">
+        <img id="overlayImg" src="data:image/gif;base64,R0lGODlhAQABAAAAACw=" alt="Overlay"
+             style="min-height:220px;background:var(--bg3);opacity:.25">
+      </div>
+      <div class="comp-tags" id="compTags"></div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">
+        3 · Circuit graph
+        <span style="font-size:9px;color:var(--muted);font-weight:400;text-transform:none">hover nodes/edges for details · drag to pan</span>
+      </div>
+      <canvas id="graphCanvas" height="300"></canvas>
+      <div class="graph-legend" id="graphLegend"></div>
+      <div class="graph-stats" id="graphStats"></div>
+    </div>
+  </div>
+</div>
+
+<!-- RESULTS -->
+<div class="hidden" id="resultSection">
+  <div class="tabs">
+    <div class="tab active"  onclick="switchTab('netlist')">Netlist</div>
+    <div class="tab"         onclick="switchTab('simulation')">Simulation</div>
+    <div class="tab"         onclick="switchTab('adjacency')">Adjacency matrix</div>
+    <div class="tab"         onclick="switchTab('params')">Edit values &amp; re-simulate</div>
+  </div>
+
+  <div class="tab-content active" id="tab-netlist">
+    <div id="missingWarnNetlist" class="missing-warn hidden">
+      <span>⚠</span>
+      <div><strong>Missing component values</strong><span id="missingListNetlist"></span></div>
+    </div>
+    <div class="flex-row">
+      <span class="spacer"></span>
+      <button class="btn btn-sm" onclick="copyNetlist()">Copy</button>
+      <button class="btn btn-sm" onclick="downloadNetlist()">Download .sp</button>
+    </div>
+    <div class="netlist-box" id="netlistBox"></div>
+  </div>
+
+  <div class="tab-content" id="tab-simulation">
+    <div id="missingWarnSim" class="missing-warn hidden">
+      <span>⚠</span>
+      <div>
+        <strong>Simulation unavailable</strong>
+        Missing: <span id="missingListSim"></span><br>
+        Go to <em>Edit values &amp; re-simulate</em>, fill in values, then click Re-simulate.
+      </div>
+    </div>
+    <div id="simContent" class="hidden">
+      <div class="metrics" id="simMetrics"></div>
+      <div class="chart-wrap"><canvas id="simChart"></canvas></div>
+      <div class="sim-legend" id="simLegend"></div>
+    </div>
+  </div>
+
+  <div class="tab-content" id="tab-adjacency">
+    <div class="adj-wrap"><table class="adj-matrix" id="adjTable"></table></div>
+    <div class="graph-stats" id="adjStats"></div>
+  </div>
+
+  <div class="tab-content" id="tab-params">
+    <p style="font-size:11px;color:var(--muted);margin-bottom:12px">
+      Edit component values below. Use standard SPICE notation: <code>10u</code>, <code>47n</code>, <code>2.2k</code>, <code>48</code>.
+      Fields in red have no value yet.
+    </p>
+    <div class="param-grid" id="paramGrid"></div>
+    <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn btn-primary" onclick="reSimulate()">▶ Re-simulate</button>
+      <button class="btn btn-sm"      onclick="regenerateNetlist()">↺ Refresh netlist</button>
+    </div>
+  </div>
+</div><!-- /resultSection -->
+</div><!-- /analyzeMode -->
+
+<!-- GRADE MODE -->
+<div id="gradeMode" class="hidden">
+  <div class="side-by-side" style="margin-bottom:20px">
+    <!-- Reference slot -->
+    <div class="circuit-slot" id="refSlot">
+      <div class="slot-title">Reference circuit <span class="ref-saved-badge hidden" id="refSavedBadge">✓ saved</span></div>
+      <input type="file" id="refFileInput" accept="image/*" style="display:none">
+      <div class="upload-zone" id="refDropZone" onclick="document.getElementById('refFileInput').click()">
+        <div style="font-size:24px;margin-bottom:6px">📐</div>
+        <p id="refDropText">Upload teacher's reference circuit</p>
+        <p style="font-size:10px;color:var(--muted);margin-top:3px">PNG · JPG · max 16 MB</p>
+      </div>
+      <div class="img-wrap hidden" id="refPreviewWrap"><img id="refPreviewImg" src="" alt="Reference" style="max-height:200px;object-fit:contain"></div>
+      <div class="actions" style="margin-top:10px">
+        <button class="btn btn-primary hidden" id="refAnalyzeBtn" onclick="analyzeReference()">
+          <span id="refBtnIcon">▶</span> <span id="refBtnText">Analyze reference</span>
+        </button>
+        <button class="btn btn-sm hidden" id="saveRefBtn" onclick="saveReference()">💾 Save as reference</button>
+      </div>
+      <div class="slot-summary hidden" id="refSummary"></div>
+    </div>
+
+    <!-- Student slot -->
+    <div class="circuit-slot" id="stuSlot">
+      <div class="slot-title">Student circuit</div>
+      <input type="file" id="stuFileInput" accept="image/*" style="display:none">
+      <div class="upload-zone" id="stuDropZone" onclick="document.getElementById('stuFileInput').click()">
+        <div style="font-size:24px;margin-bottom:6px">✏️</div>
+        <p id="stuDropText">Upload student's circuit</p>
+        <p style="font-size:10px;color:var(--muted);margin-top:3px">PNG · JPG · max 16 MB</p>
+      </div>
+      <div class="img-wrap hidden" id="stuPreviewWrap"><img id="stuPreviewImg" src="" alt="Student" style="max-height:200px;object-fit:contain"></div>
+      <div class="actions" style="margin-top:10px">
+        <button class="btn btn-primary hidden" id="stuAnalyzeBtn" onclick="analyzeStudent()">
+          <span id="stuBtnIcon">▶</span> <span id="stuBtnText">Analyze student circuit</span>
+        </button>
+      </div>
+      <div class="slot-summary hidden" id="stuSummary"></div>
+    </div>
+  </div>
+
+  <!-- Grade button area + Rubric editor toggle -->
+  <div style="display:flex;align-items:flex-start;gap:16px;margin-bottom:20px;flex-wrap:wrap">
+    <div style="text-align:center">
+      <button class="btn btn-primary" id="gradeBtn" onclick="gradeCircuits()" style="padding:10px 32px;font-size:13px" disabled>
+        <span id="gradeBtnIcon">⚖</span> <span id="gradeBtnText">Grade student circuit</span>
+      </button>
+      <div style="font-size:10px;color:var(--muted);margin-top:6px" id="gradeHint">Analyze both circuits first</div>
+    </div>
+    <div style="flex:1;min-width:280px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+        <span style="font-size:10px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)">Rubric weights</span>
+        <button class="btn btn-sm" onclick="resetWeights()" style="padding:2px 8px;font-size:10px">Reset</button>
+        <span style="font-size:10px;color:var(--muted)" id="weightTotal">Total: 100%</span>
+      </div>
+      <div id="rubricEditor"></div>
+    </div>
+  </div>
+
+  <!-- Grade results -->
+  <div class="hidden" id="gradeResults">
+    <div class="panel">
+      <div class="panel-title">
+        Grading results
+        <span style="flex:1"></span>
+        <button class="btn btn-sm" onclick="exportReport()" style="margin-left:auto">⬇ Export report</button>
+      </div>
+      <div style="display:flex;align-items:center;gap:20px;margin-bottom:20px;flex-wrap:wrap">
+        <div style="text-align:center">
+          <div class="grade-badge" id="gradeBadge">—</div>
+          <div class="grade-total" id="gradeTotalLabel">— / 100</div>
+        </div>
+        <div style="flex:1;min-width:200px" id="criteriaRows"></div>
+      </div>
+      <div class="tabs">
+        <div class="tab active" onclick="switchGradeTab('inventory')">Components</div>
+        <div class="tab"        onclick="switchGradeTab('values')">Values</div>
+        <div class="tab"        onclick="switchGradeTab('topology')">Topology</div>
+        <div class="tab"        onclick="switchGradeTab('simulation')">Simulation</div>
+        <div class="tab"        onclick="switchGradeTab('graphs')">Graphs</div>
+        <div class="tab"        onclick="switchGradeTab('overlays')">Overlays</div>
+      </div>
+      <div class="tab-content active" id="gtab-inventory"><div id="fbInventory"></div></div>
+      <div class="tab-content" id="gtab-values"><div id="fbValues"></div></div>
+      <div class="tab-content" id="gtab-topology"><div id="fbTopology"></div></div>
+      <div class="tab-content" id="gtab-simulation"><div id="fbSimulation"></div></div>
+      <div class="tab-content" id="gtab-graphs">
+        <div class="side-by-side">
+          <div>
+            <div style="font-size:10px;color:var(--muted);margin-bottom:6px">Reference circuit graph</div>
+            <canvas id="refGraphCanvas" height="260" style="width:100%;border:.5px solid var(--border);border-radius:7px;background:var(--bg)"></canvas>
+          </div>
+          <div>
+            <div style="font-size:10px;color:var(--muted);margin-bottom:6px">Student circuit graph</div>
+            <canvas id="stuGraphCanvas" height="260" style="width:100%;border:.5px solid var(--border);border-radius:7px;background:var(--bg)"></canvas>
+          </div>
+        </div>
+        <div id="graphDiffSummary" style="font-size:11px;color:var(--muted);margin-top:10px;line-height:1.8"></div>
+      </div>
+      <div class="tab-content" id="gtab-overlays"><div class="side-by-side" id="fbOverlays"></div></div>
+    </div>
+  </div>
+
+  <!-- Batch grading panel -->
+  <div class="panel" style="margin-top:20px">
+    <div class="panel-title">
+      Batch grading
+      <span style="font-size:9px;color:var(--muted);font-weight:400;text-transform:none;margin-left:4px">— analyze multiple students and grade all at once</span>
+    </div>
+    <div id="batchStudentList" style="display:flex;flex-direction:column;gap:8px;margin-bottom:12px"></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn btn-sm" onclick="addBatchStudent()">+ Add student</button>
+      <button class="btn btn-primary" id="batchGradeBtn" onclick="runBatchGrade()" disabled>⚖ Grade all</button>
+      <button class="btn btn-sm" id="batchExportBtn" onclick="exportBatchReport()" style="display:none">⬇ Export batch report</button>
+    </div>
+    <div class="hidden" id="batchResults" style="margin-top:16px">
+      <div style="font-size:10px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-bottom:10px">Results</div>
+      <div id="batchSummaryBar" style="margin-bottom:12px"></div>
+      <div id="batchResultRows"></div>
+    </div>
+  </div>
+</div><!-- /gradeMode -->
+
+</div><!-- /app -->
+
+<script>
+let imageB64   = null;
+let lastResult = null;
+let simChart   = null;
+
+// ── Component color map ───────────────────────────────────────────────────
+const COMP_COLORS = {
+  resistor:'#a0a0a0', potentiometer:'#8282c0',
+  capacitor:'#5ba4f5', inductor:'#b57af7',
+  diode:'#e07b39',    led:'#26c6a8',    zener:'#b57af7',
+  schottky:'#d06040', tvs:'#a040c8',
+  switch:'#5ba4f5',   push_button:'#28c8d8', relay:'#50a0c8',
+  bjt:'#2ee8a0',      mosfet:'#2ee880',
+  voltage_regulator:'#64c850',
+  opamp:'#26bca0',    comparator:'#1aa0bc',
+  source:'#f06060',   current_source:'#f08080',
+  ground:'#555',      vcc:'#3c64f0',
+  transformer:'#e0c840', crystal:'#c8c840', fuse:'#c88c40',
+  optocoupler:'#96c864', unknown:'#888'
+};
+
+// ── File handling ─────────────────────────────────────────────────────────
+document.getElementById('fileInput').addEventListener('change', e => {
+  const f = e.target.files[0]; if (f) loadFile(f);
+});
+const dz = document.getElementById('dropZone');
+dz.addEventListener('dragover',  e => { e.preventDefault(); e.stopPropagation(); dz.classList.add('over'); });
+dz.addEventListener('dragleave', e => { if (!dz.contains(e.relatedTarget)) dz.classList.remove('over'); });
+dz.addEventListener('drop', e => {
+  e.preventDefault(); e.stopPropagation(); dz.classList.remove('over');
+  const f = e.dataTransfer.files[0]; if (f) loadFile(f);
+});
+// Also handle paste from clipboard
+document.addEventListener('paste', e => {
+  const item = [...(e.clipboardData?.items || [])].find(i => i.type.startsWith('image/'));
+  if (item) { const f = item.getAsFile(); if (f) loadFile(f); }
+});
+
+function loadFile(file) {
+  if (!file.type.startsWith('image/')) {
+    log('Not an image file: ' + file.type, 'err'); return;
+  }
+  const reader = new FileReader();
+  reader.onload = ev => {
+    const dataUrl = ev.target.result;
+    imageB64 = dataUrl.split(',')[1];
+    document.getElementById('previewImg').src = dataUrl;
+    document.getElementById('previewWrap').classList.remove('hidden');
+    document.getElementById('analyzeBtn').classList.remove('hidden');
+    // Update drop zone to show filename
+    document.getElementById('dropZoneText').textContent = '✓ ' + file.name;
+    log(`Loaded: ${file.name}  (${(file.size / 1024).toFixed(0)} KB)`, 'ok');
+  };
+  reader.onerror = () => log('Failed to read file', 'err');
+  reader.readAsDataURL(file);
+}
+
+// ── Pipeline ──────────────────────────────────────────────────────────────
+async function startPipeline() {
+  if (!imageB64) return;
+  resetSteps();
+  document.getElementById('resultSection').classList.add('hidden');
+  document.getElementById('logBox').innerHTML = '';
+  document.getElementById('circuitDesc').classList.add('hidden');
+  setProgress(0); setBtnLoading(true);
+
+  try {
+    log('Starting pipeline…', 'info');
+    animateStep(0, 'Detecting components…');
+
+    const res  = await fetch('/analyze', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ image_b64: imageB64 })
+    });
+    const data = await res.json();
+    if (!res.ok || data.error) throw new Error(data.error || 'Server error');
+
+    lastResult = data;
+    if (data.log) data.log.forEach(l => log(l.msg, l.tag));
+
+    const comps = data.components || [];
+    const miss  = data.missing_list || [];
+
+    // Show circuit description
+    if (data.circuit_description) {
+      const db = document.getElementById('circuitDesc');
+      db.textContent = data.circuit_description;
+      db.classList.remove('hidden');
+    }
+
+    markStep(0, 'done', `${comps.length} components detected`);
+    markStep(1, 'done', `${data.nodes?.length || 0} nodes, ${data.edges?.length || 0} edges`);
+    markStep(2, data.has_missing ? 'warn' : 'done',
+             data.has_missing ? `missing: ${miss.join(', ')}` : `${data.netlist.split('\n').length} lines`);
+    markStep(3, data.sim ? 'done' : 'warn',
+             data.sim ? `Vout=${data.sim.Vout_avg.toFixed(2)}V` : 'skipped — values missing');
+    markStep(4, 'done', 'overlay rendered');
+
+    renderOverlay(data.overlay_b64);
+    renderCompTags(comps);
+    renderGraph(comps, data.nodes || [], data.edges || []);
+    renderNetlist(data.netlist, data.has_missing, miss);
+    renderSimulation(data.sim, data.has_missing, miss);
+    renderAdjMatrix(data.adjacency, comps);
+    buildParamGrid(comps);
+
+    setProgress(100);
+    document.getElementById('resultSection').classList.remove('hidden');
+    document.getElementById('resultSection').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    log('Pipeline complete!', 'ok');
+
+  } catch (e) {
+    log('Error: ' + e.message, 'err');
+    for (let i = 0; i < 5; i++) markStep(i, 'err', '');
+  } finally {
+    setBtnLoading(false);
+  }
+}
+
+function setBtnLoading(on) {
+  document.getElementById('btnSpinner')?.remove();
+  document.getElementById('btnIcon').textContent = on ? '' : '▶';
+  document.getElementById('btnText').textContent = on ? 'Analyzing…' : 'Analyze circuit';
+  if (on) {
+    const sp = document.createElement('span');
+    sp.className = 'spinner'; sp.id = 'btnSpinner';
+    document.getElementById('analyzeBtn').insertBefore(sp, document.getElementById('analyzeBtn').firstChild);
+  }
+}
+
+// ── Step helpers ──────────────────────────────────────────────────────────
+function resetSteps() {
+  for (let i = 0; i < 5; i++) {
+    const d = document.getElementById('d' + i);
+    d.className = 'step-dot dot-wait'; d.textContent = i + 1;
+    document.getElementById('s' + i).textContent = 'waiting';
+  }
+}
+function animateStep(i, sub) {
+  const d = document.getElementById('d' + i);
+  d.className = 'step-dot dot-active'; d.textContent = i + 1;
+  document.getElementById('s' + i).textContent = sub;
+  setProgress((i + 1) / 5 * 85);
+}
+function markStep(i, state, sub) {
+  if (i < 0) return;
+  const d   = document.getElementById('d' + i);
+  const cls = { done: 'dot-done', warn: 'dot-warn', err: 'dot-err' }[state] || 'dot-wait';
+  d.className   = 'step-dot ' + cls;
+  d.textContent = state === 'done' ? '✓' : state === 'warn' ? '!' : state === 'err' ? '✗' : (i + 1);
+  if (sub) document.getElementById('s' + i).textContent = sub;
+}
+function setProgress(p) { document.getElementById('progressBar').style.width = p + '%'; }
+
+function log(msg, tag = '') {
+  const lb  = document.getElementById('logBox');
+  const d   = document.createElement('div');
+  const now = new Date().toLocaleTimeString('en', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  d.className   = tag === 'ok' ? 'log-ok' : tag === 'err' ? 'log-err' : tag === 'warn' ? 'log-warn' : tag === 'info' ? 'log-info' : '';
+  d.textContent = `[${now}] ${msg}`;
+  lb.appendChild(d); lb.scrollTop = lb.scrollHeight;
+}
+
+// ── Tab switching ─────────────────────────────────────────────────────────
+function switchTab(name) {
+  const names = ['netlist', 'simulation', 'adjacency', 'params'];
+  document.querySelectorAll('.tab').forEach((t, i) => t.classList.toggle('active', names[i] === name));
+  document.querySelectorAll('.tab-content').forEach(c => c.classList.toggle('active', c.id === 'tab-' + name));
+  if (name === 'simulation' && simChart) simChart.resize();
+}
+
+// ── Overlay ───────────────────────────────────────────────────────────────
+function renderOverlay(b64) {
+  if (!b64) return;
+  const img = document.getElementById('overlayImg');
+  img.src = 'data:image/jpeg;base64,' + b64;
+  img.style.opacity = '1';
+}
+
+// ── Component tags ────────────────────────────────────────────────────────
+function renderCompTags(components) {
+  document.getElementById('compTags').innerHTML = components.map(c => {
+    const col     = COMP_COLORS[c.type] || '#888';
+    const conf    = Math.round((c.confidence || 0.8) * 100);
+    const hasVal  = c.value && c.value !== '???';
+    const hasModel= c.model;
+    const sub     = c.subtype ? ` <span style="color:var(--muted)">${c.subtype}</span>` : '';
+    return `<span class="comp-tag" title="${c.label} | nodes: ${_nodeStr(c)}">
+      <span class="comp-dot" style="background:${col}"></span>
+      <strong>${c.label}</strong>${sub} · ${c.type}
+      ${hasVal  ? `· <span style="color:var(--accent)">${c.value}</span>`  : `<span style="color:var(--red)">no value</span>`}
+      ${hasModel? `· <span style="color:var(--muted)">${c.model}</span>` : ''}
+      <span style="color:var(--muted);font-size:9px">${conf}%</span>
+    </span>`;
+  }).join('');
+}
+
+function _nodeStr(c) {
+  if (c.terminals) return Object.entries(c.terminals).map(([k,v]) => `${k}:${v}`).join(' ');
+  return `A:${c.node_anode} K:${c.node_cathode}`;
+}
+
+// ── Graph (multi-terminal aware) ──────────────────────────────────────────
+const MULTI_TERMINAL_TYPES = new Set(['bjt','mosfet','voltage_regulator','potentiometer','relay','opamp','comparator']);
+const TERM_LABELS = {
+  base:'B', collector:'C', emitter:'E',
+  gate:'G', drain:'D', source:'S',
+  in:'IN', gnd_adj:'GND', out:'OUT',
+  in_neg:'−', in_pos:'+', vcc:'V+', vee:'V−',
+  t1:'1', wiper:'W', t2:'2',
+  coil_a:'CA', coil_b:'CB', com:'COM', no:'NO',
+};
+
+function renderGraph(components, nodes, edges) {
+  const canvas = document.getElementById('graphCanvas');
+  const dpr    = window.devicePixelRatio || 1;
+  const cw     = canvas.offsetWidth || 800;
+  const ch     = 540;
+  canvas.width  = cw * dpr;
+  canvas.height = ch * dpr;
+  canvas.style.height = ch + 'px';
+  canvas.style.minHeight = ch + 'px';
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+
+  if (!nodes.length && !components.length) {
+    ctx.clearRect(0,0,cw,ch);
+    ctx.fillStyle = '#7a7d8a'; ctx.font = '12px monospace';
+    ctx.fillText('No topology data', cw/2-60, ch/2);
+    return;
+  }
+
+  // ── 1. Collect all node IDs ─────────────────────────────────────────────
+  const allIds = new Set();
+  nodes.forEach(n => allIds.add(n.id));
+  components.forEach(c => {
+    if (c.terminals) Object.values(c.terminals).forEach(v => allIds.add(v));
+    else { if (c.node_anode  != null) allIds.add(c.node_anode);
+           if (c.node_cathode != null) allIds.add(c.node_cathode); }
+  });
+
+  // ── 2. Force-directed layout ────────────────────────────────────────────
+  const PAD = 60;
+  const pos = {};
+
+  // Seed positions: use AI x/y if available, else circular
+  const idArr = [...allIds];
+  idArr.forEach((id, i) => {
+    const n = nodes.find(n => n.id === id);
+    if (n && n.x != null && n.y != null) {
+      pos[id] = { x: PAD + n.x * (cw - 2*PAD), y: PAD + n.y * (ch - 2*PAD) };
+    } else {
+      const a = (i / idArr.length) * Math.PI*2 - Math.PI/2;
+      const r = Math.min(cw,ch)*0.32;
+      pos[id] = { x: cw/2 + r*Math.cos(a), y: ch/2 + r*Math.sin(a) };
+    }
+  });
+
+  // Build adjacency for spring forces
+  const adj = {};
+  idArr.forEach(id => adj[id] = new Set());
+  components.forEach(c => {
+    const ns = c.terminals ? Object.values(c.terminals) : [c.node_anode, c.node_cathode];
+    const valid = ns.filter(n => n != null);
+    for (let i=0;i<valid.length;i++) for (let j=i+1;j<valid.length;j++) {
+      adj[valid[i]]?.add(valid[j]); adj[valid[j]]?.add(valid[i]);
+    }
+  });
+
+  // Fruchterman–Reingold iterations
+  const ITERS=200, k=Math.sqrt((cw*ch)/Math.max(idArr.length,1))*0.85;
+  const vel = {}; idArr.forEach(id => vel[id]={x:0,y:0});
+  for (let iter=0; iter<ITERS; iter++) {
+    const temp = 30 * (1 - iter/ITERS);
+    const disp = {}; idArr.forEach(id => disp[id]={x:0,y:0});
+    // Repulsion
+    for (let i=0;i<idArr.length;i++) for (let j=i+1;j<idArr.length;j++) {
+      const a=idArr[i],b=idArr[j];
+      let dx=pos[a].x-pos[b].x, dy=pos[a].y-pos[b].y;
+      const d=Math.max(Math.hypot(dx,dy),0.1);
+      const f=k*k/d;
+      disp[a].x+=dx/d*f; disp[a].y+=dy/d*f;
+      disp[b].x-=dx/d*f; disp[b].y-=dy/d*f;
+    }
+    // Attraction
+    idArr.forEach(a => {
+      (adj[a]||new Set()).forEach(b => {
+        if (b < a) return;
+        let dx=pos[a].x-pos[b].x, dy=pos[a].y-pos[b].y;
+        const d=Math.max(Math.hypot(dx,dy),0.1);
+        const f=d*d/k;
+        disp[a].x-=dx/d*f; disp[a].y-=dy/d*f;
+        disp[b].x+=dx/d*f; disp[b].y+=dy/d*f;
+      });
+    });
+    // Apply with temperature + boundary
+    idArr.forEach(id => {
+      const dm=Math.max(Math.hypot(disp[id].x,disp[id].y),0.1);
+      pos[id].x += disp[id].x/dm*Math.min(dm,temp);
+      pos[id].y += disp[id].y/dm*Math.min(dm,temp);
+      pos[id].x = Math.max(PAD, Math.min(cw-PAD, pos[id].x));
+      pos[id].y = Math.max(PAD, Math.min(ch-PAD, pos[id].y));
+    });
+  }
+
+  // ── 3. Count parallel edges (same node pair, different components) ───────
+  const edgeCount = {};   // "a-b" → count so far
+  function edgeKey(a,b){ return Math.min(a,b)+'-'+Math.max(a,b); }
+
+  function getParallelOffset(a, b) {
+    const key = edgeKey(a,b);
+    edgeCount[key] = (edgeCount[key]||0)+1;
+    return edgeCount[key];
+  }
+  // pre-count totals
+  const edgeTotal = {};
+  components.forEach(c => {
+    const ns = c.terminals ? Object.values(c.terminals) : [c.node_anode, c.node_cathode];
+    const valid = [...new Set(ns.filter(n=>n!=null))];
+    for(let i=0;i<valid.length;i++) for(let j=i+1;j<valid.length;j++){
+      const k2=edgeKey(valid[i],valid[j]);
+      edgeTotal[k2]=(edgeTotal[k2]||0)+1;
+    }
+  });
+  // reset count for drawing
+  const edgeDrawn = {};
+
+  function drawCurvedEdge(ctx, p1, p2, col, lw, idx, total, label) {
+    // Spread parallel edges evenly with enough separation to read each label.
+    // Minimum gap is 36px so labels don't overlap even for 1px-long edges.
+    const MIN_GAP = 36;
+    const dx=p2.x-p1.x, dy=p2.y-p1.y;
+    const edgeLen = Math.max(Math.hypot(dx,dy), 1);
+    // Gap scales with edge length so it looks proportional, but never < MIN_GAP
+    const gap = Math.max(MIN_GAP, edgeLen * 0.18);
+    // Centre the bundle: offsets are symmetric around 0
+    const offset = total === 1 ? 0 : gap * (idx - (total+1)/2);
+
+    const mx=(p1.x+p2.x)/2, my=(p1.y+p2.y)/2;
+    const nx=-dy/edgeLen, ny=dx/edgeLen;   // perpendicular unit vector
+    const cx=mx+nx*offset, cy=my+ny*offset;
+
+    // Arrow head
+    const headLen=7, headAngle=0.42;
+    const angle=Math.atan2(p2.y-cy, p2.x-cx);
+
+    ctx.strokeStyle=col; ctx.lineWidth=lw;
+    ctx.beginPath(); ctx.moveTo(p1.x,p1.y);
+    ctx.quadraticCurveTo(cx,cy,p2.x,p2.y);
+    ctx.stroke();
+
+    // Small arrowhead at destination
+    ctx.beginPath();
+    ctx.moveTo(p2.x, p2.y);
+    ctx.lineTo(p2.x - headLen*Math.cos(angle-headAngle),
+               p2.y - headLen*Math.sin(angle-headAngle));
+    ctx.moveTo(p2.x, p2.y);
+    ctx.lineTo(p2.x - headLen*Math.cos(angle+headAngle),
+               p2.y - headLen*Math.sin(angle+headAngle));
+    ctx.strokeStyle=col+'99'; ctx.lineWidth=1;
+    ctx.stroke();
+
+    // Label at bezier t=0.5
+    const lx=0.25*p1.x+0.5*cx+0.25*p2.x;
+    const ly=0.25*p1.y+0.5*cy+0.25*p2.y;
+    ctx.font='bold 9px monospace';
+    const tw=ctx.measureText(label).width;
+    // Pill background
+    const PR=3;
+    ctx.fillStyle='rgba(10,11,13,0.88)';
+    if(ctx.roundRect) {
+      ctx.beginPath(); ctx.roundRect(lx-tw/2-PR, ly-8, tw+PR*2, 13, 3); ctx.fill();
+    } else {
+      ctx.fillRect(lx-tw/2-PR, ly-8, tw+PR*2, 13);
+    }
+    ctx.fillStyle=col;
+    ctx.textAlign='center';
+    ctx.fillText(label, lx, ly+3);
+    ctx.textAlign='left';
+  }
+
+  // ── 4. Draw ──────────────────────────────────────────────────────────────
+  ctx.clearRect(0,0,cw,ch);
+
+  // Draw component edges
+  components.forEach(c => {
+    const col = (COMP_COLORS[c.type]||'#888');
+    const hasVal = c.value && c.value !== '???';
+    const lbl = c.label + (hasVal ? ' '+c.value : '');
+
+    const ns = c.terminals ? Object.values(c.terminals) : [c.node_anode, c.node_cathode];
+    const tkeys = c.terminals ? Object.keys(c.terminals) : ['anode','cathode'];
+    const valid = ns.map((n,i)=>[n,tkeys[i]]).filter(([n])=>n!=null);
+
+    for (let i=0;i<valid.length;i++) for (let j=i+1;j<valid.length;j++) {
+      const [nA,kA]=valid[i]; const [nB,kB]=valid[j];
+      const p1=pos[nA]; const p2=pos[nB];
+      if (!p1||!p2) continue;
+      const key=edgeKey(nA,nB);
+      edgeDrawn[key]=(edgeDrawn[key]||0)+1;
+      const idx=edgeDrawn[key]; const total=edgeTotal[key]||1;
+      const la=TERM_LABELS[kA]||kA[0]||'?'; const lb=TERM_LABELS[kB]||kB[0]||'?';
+      const edgeLbl = valid.length>2 ? `${c.label}(${la}→${lb})` : lbl;
+      drawCurvedEdge(ctx,p1,p2,col+'cc',1.8,idx,total,edgeLbl);
+    }
+  });
+
+  // Draw nodes on top
+  idArr.forEach(id => {
+    const p=pos[id]; if(!p) return;
+    const isGnd=id===0;
+    const r=isGnd?7:10;
+    // Shadow
+    ctx.shadowColor='rgba(0,0,0,0.5)'; ctx.shadowBlur=6;
+    ctx.beginPath(); ctx.arc(p.x,p.y,r,0,Math.PI*2);
+    ctx.fillStyle=isGnd?'#0d1a15':'#1a1d26'; ctx.fill();
+    ctx.shadowBlur=0;
+    ctx.strokeStyle=isGnd?'#2ee8a0':'#5ba4f5'; ctx.lineWidth=1.8; ctx.stroke();
+    ctx.fillStyle=isGnd?'#2ee8a0':'#e8e9ec';
+    ctx.font=`bold ${isGnd?8:9}px monospace`; ctx.textAlign='center';
+    ctx.fillText(isGnd?'⏚':String(id), p.x, p.y+4);
+    ctx.textAlign='left';
+  });
+
+  // Legend
+  const typesUsed=[...new Set(components.map(c=>c.type))];
+  document.getElementById('graphLegend').innerHTML=typesUsed.map(t=>
+    `<span class="graph-leg-item"><span class="graph-leg-dot" style="background:${COMP_COLORS[t]||'#888'}"></span>${t}</span>`
+  ).join('');
+  document.getElementById('graphStats').textContent=
+    `Nodes: ${idArr.length}  ·  Components: ${components.length}  ·  Parallel edge pairs: ${Object.values(edgeTotal).filter(v=>v>1).length}`;
+
+  // Hover tooltip
+  canvas.onmousemove = e => {
+    const rect=canvas.getBoundingClientRect();
+    const mx=e.clientX-rect.left; const my2=e.clientY-rect.top;
+    const tt=document.getElementById('tooltip');
+    let hit=false;
+    idArr.forEach(id => {
+      const p=pos[id]; if(!p) return;
+      if(Math.hypot(mx-p.x,my2-p.y)<14) {
+        const compsAt=components.filter(c=>
+          (c.terminals&&Object.values(c.terminals).includes(id))||
+          c.node_anode===id||c.node_cathode===id
+        );
+        const termInfo=compsAt.map(c=>{
+          if(c.terminals){const t=Object.entries(c.terminals).find(([,v])=>v===id); return `${c.label}.${t?t[0]:'?'}`;}
+          return `${c.label}.${c.node_anode===id?'anode':'cathode'}`;
+        });
+        tt.innerHTML=`<strong style="color:var(--accent)">Node ${id===0?'GND':id}</strong><br>${termInfo.join('<br>')}`;
+        tt.style.display='block';
+        tt.style.left=(e.clientX+14)+'px';
+        tt.style.top=(e.clientY-8)+'px';
+        hit=true;
+      }
+    });
+    if(!hit) tt.style.display='none';
+  };
+  canvas.onmouseleave = () => { document.getElementById('tooltip').style.display='none'; };
+}
+
+// ── Netlist ───────────────────────────────────────────────────────────────
+function renderNetlist(text, hasMissing, missingList) {
+  const mw = document.getElementById('missingWarnNetlist');
+  if (hasMissing) {
+    mw.classList.remove('hidden');
+    document.getElementById('missingListNetlist').textContent = ' — ' + missingList.join(', ') + ' have no values (shown as ???)';
+  } else mw.classList.add('hidden');
+
+  const html = text.split('\n').map(line => {
+    if (line.includes('???'))  return `<span class="miss">${esc(line)}</span>`;
+    if (line.startsWith('*'))  return `<span class="cmt">${esc(line)}</span>`;
+    if (line.startsWith('.'))  return `<span class="kw">${esc(line)}</span>`;
+    const m = line.match(/^(\S+)\s+(.*)$/);
+    if (m) return `<span style="color:var(--accent)">${esc(m[1])}</span> ${esc(m[2])}`;
+    return esc(line);
+  }).join('\n');
+  document.getElementById('netlistBox').innerHTML = html;
+}
+
+function esc(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function copyNetlist() { navigator.clipboard.writeText(document.getElementById('netlistBox').innerText).catch(() => {}); }
+function downloadNetlist() {
+  const blob = new Blob([document.getElementById('netlistBox').innerText], { type: 'text/plain' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+  a.download = 'circuit_netlist.sp'; a.click();
+}
+
+// ── Simulation ────────────────────────────────────────────────────────────
+function renderSimulation(sim, hasMissing, missingList) {
+  const warn = document.getElementById('missingWarnSim');
+  const cont = document.getElementById('simContent');
+  if (hasMissing || !sim) {
+    warn.classList.remove('hidden'); cont.classList.add('hidden');
+    document.getElementById('missingListSim').textContent = missingList?.join(', ') || 'unknown';
+    return;
+  }
+  warn.classList.add('hidden'); cont.classList.remove('hidden');
+
+  // Mode-specific labels
+  const SIM_META = {
+    boost:     { title: 'Boost Converter',    i_label: 'I_inductor', v_label: 'V_capacitor',
+                 metrics: ['V_out avg','I_L avg','ΔI_L ripple','V ripple','P_out','Efficiency'] },
+    rc:        { title: 'RC Charging',        i_label: 'I_capacitor', v_label: 'V_capacitor',
+                 metrics: ['V_cap avg','I_cap avg','ΔI ripple','V ripple','P_out','τ = RC'] },
+    rl:        { title: 'RL Step Response',   i_label: 'I_inductor', v_label: 'V_R',
+                 metrics: ['V_R avg','I_L avg','ΔI ripple','V ripple','P_out','Efficiency'] },
+    resistive: { title: 'DC Resistive',       i_label: 'I_load', v_label: 'V_load',
+                 metrics: ['V_out','I_load','Ripple (I)','Ripple (V)','P_out','Efficiency'] },
+    generic:   { title: 'Simulation',         i_label: 'I (A)', v_label: 'V_out',
+                 metrics: ['V_out avg','I avg','ΔI ripple','V ripple','P_out','Efficiency'] },
+  };
+  const meta = SIM_META[sim.sim_mode] || SIM_META.generic;
+  const mLabels = meta.metrics;
+
+  document.getElementById('simMetrics').innerHTML = [
+    { label: mLabels[0], value: sim.Vout_avg.toFixed(3),       unit: 'V'  },
+    { label: mLabels[1], value: sim.IL_avg.toFixed(4),         unit: 'A'  },
+    { label: mLabels[2], value: sim.ripple_I.toFixed(4),       unit: 'A'  },
+    { label: mLabels[3], value: sim.Vripple.toFixed(2),        unit: 'mV' },
+    { label: mLabels[4], value: sim.Pout.toFixed(2),           unit: 'W'  },
+    { label: mLabels[5], value: (sim.eff * 100).toFixed(1),    unit: '%'  },
+  ].map(m => `<div class="metric">
+    <div class="metric-label">${m.label}</div>
+    <div class="metric-value">${m.value}<span class="metric-unit"> ${m.unit}</span></div>
+  </div>`).join('') +
+  `<div class="metric" style="grid-column:1/-1;background:rgba(46,232,160,.06);border:.5px solid rgba(46,232,160,.2)">
+    <div class="metric-label">Simulation type</div>
+    <div style="font-size:12px;color:var(--accent);margin-top:2px">${meta.title}</div>
+  </div>`;
+
+  const canvas = document.getElementById('simChart');
+  if (simChart) { simChart.destroy(); simChart = null; }
+  simChart = new Chart(canvas, {
+    type: 'line',
+    data: {
+      labels: sim.time.map(t => t.toFixed(2)),
+      datasets: [
+        { label: 'V_source (V)',      data: sim.Vs,    borderColor: '#f06060', borderWidth: 1.5, pointRadius: 0, borderDash: [5, 3] },
+        { label: meta.v_label+' (V)', data: sim.Vload, borderColor: '#2ee8a0', borderWidth: 2,   pointRadius: 0 },
+        { label: meta.i_label+' (A)', data: sim.IL,    borderColor: '#5ba4f5', borderWidth: 1.5, pointRadius: 0, yAxisID: 'y2', borderDash: [3, 2] },
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false, animation: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${ctx.raw.toFixed(4)}` } } },
+      scales: {
+        x:  { title: { display: true, text: 'Time (ms)', color: '#7a7d8a', font: { size: 10 } }, ticks: { maxTicksLimit: 8, color: '#7a7d8a', font: { size: 9 } }, grid: { color: 'rgba(255,255,255,0.05)' } },
+        y:  { title: { display: true, text: 'Voltage (V)', color: '#7a7d8a', font: { size: 10 } }, ticks: { color: '#7a7d8a', font: { size: 9 }, callback: v => v.toFixed(1) }, grid: { color: 'rgba(255,255,255,0.05)' } },
+        y2: { position: 'right', title: { display: true, text: 'Current (A)', color: '#7a7d8a', font: { size: 10 } }, ticks: { color: '#7a7d8a', font: { size: 9 }, callback: v => v.toFixed(3) }, grid: { drawOnChartArea: false } }
+      }
+    }
+  });
+
+  document.getElementById('simLegend').innerHTML = [
+    { col: '#f06060', label: 'V_source (V)',             dash: true  },
+    { col: '#2ee8a0', label: meta.v_label + ' (V)',      dash: false },
+    { col: '#5ba4f5', label: meta.i_label + ' (A)',      dash: true  },
+  ].map(l => `<span class="sim-legend-item">
+    <span class="leg-line" style="${l.dash ? 'border-top:2px dashed ' + l.col : 'background:' + l.col}"></span>${l.label}
+  </span>`).join('');
+}
+
+// ── Adjacency matrix ──────────────────────────────────────────────────────
+function renderAdjMatrix(adj, components) {
+  const { nodes, matrix, avg_deg } = adj;
+  let html = '<tr><th></th>' + nodes.map(n => `<th>${n === 0 ? 'GND' : 'N' + n}</th>`).join('') + '</tr>';
+  matrix.forEach((row, i) => {
+    html += `<tr><th>${nodes[i] === 0 ? 'GND' : 'N' + nodes[i]}</th>` + row.map(v => `<td class="${v ? 'adj-1' : 'adj-0'}">${v}</td>`).join('') + '</tr>';
+  });
+  document.getElementById('adjTable').innerHTML = html;
+  document.getElementById('adjStats').textContent =
+    `Nodes: ${nodes.length}  ·  Avg degree: ${avg_deg}`;
+}
+
+// ── Params / edit values ──────────────────────────────────────────────────
+// Types that need a numeric value for simulation
+const NEEDS_VALUE_JS = new Set(['resistor','potentiometer','capacitor','inductor','source',
+                                'current_source','transformer','zener','crystal']);
+// Types that use a model name string (not a number)
+const MODEL_ONLY_JS  = new Set(['bjt','mosfet','voltage_regulator','opamp','comparator',
+                                'diode','led','schottky','tvs','optocoupler']);
+
+function buildParamGrid(components) {
+  const editable = [...NEEDS_VALUE_JS, ...MODEL_ONLY_JS,
+                    'switch','push_button'];
+  const rows = components.filter(c => editable.includes(c.type));
+  document.getElementById('paramGrid').innerHTML = rows.map(c => {
+    const isModelType = MODEL_ONLY_JS.has(c.type);
+    // For model-only types: use .model field; for others: use .value
+    const currentVal = isModelType ? (c.model || '') : (c.value || '');
+    const isMissing  = !isModelType && (!c.value || c.value === '???');
+    const fieldHint  = isModelType
+      ? `Model name (e.g. 2N2222, TIP41C, LM358)`
+      : `Value (e.g. 1k, 47u, 100n, 9)`;
+    const subInfo    = [c.type, c.subtype].filter(Boolean).join(' · ');
+    return `<div class="param-row">
+      <label class="param-label">${c.label} (${subInfo})</label>
+      <input class="param-input${isMissing ? ' missing' : ''}"
+             id="pv_${c.label}"
+             data-field="${isModelType ? 'model' : 'value'}"
+             value="${currentVal}"
+             placeholder="${isMissing ? fieldHint : currentVal}">
+    </div>`;
+  }).join('');
+}
+
+async function reSimulate() {
+  if (!lastResult) return;
+  const comps = lastResult.components.map(c => {
+    const inp   = document.getElementById('pv_' + c.label);
+    if (!inp) return c;
+    const newVal  = inp.value.trim();
+    const field   = inp.dataset.field || 'value';
+    if (!newVal) return c;
+    return { ...c, [field]: newVal };
+  });
+  const editedValues = {};
+  comps.forEach(c => { editedValues[c.label] = c.value; });
+
+  try {
+    const res  = await fetch('/resim', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ components: comps, edited_values: editedValues })
+    });
+    const data = await res.json();
+    if (!res.ok || data.error) throw new Error(data.error);
+
+    lastResult.sim          = data.sim;
+    lastResult.has_missing  = data.has_missing;
+    lastResult.netlist      = data.netlist;
+    lastResult.components   = comps;
+
+    renderNetlist(data.netlist, data.has_missing, []);
+    renderSimulation(data.sim, data.has_missing, []);
+    renderCompTags(comps);
+    renderGraph(comps, lastResult.nodes || [], lastResult.edges || []);
+
+    switchTab('simulation');
+    log('Re-simulation done', 'ok');
+  } catch (e) {
+    log('Re-sim error: ' + e.message, 'err');
+  }
+}
+
+function regenerateNetlist() {
+  if (!lastResult) return;
+  const comps = lastResult.components.map(c => {
+    const inp = document.getElementById('pv_' + c.label);
+    const nv  = inp?.value?.trim();
+    return { ...c, value: nv || c.value };
+  });
+  const lines = buildClientNetlist(comps);
+  const miss  = comps.filter(c => ['resistor','capacitor','inductor','source'].includes(c.type) && !c.value).map(c => c.label);
+  renderNetlist(lines.join('\n'), miss.length > 0, miss);
+  switchTab('netlist');
+}
+
+function buildClientNetlist(comps) {
+  const lines = ['* Circuit Vision — netlist', '* (client-side preview)', ''];
+  let Vc=0,Dc=0,Lc=0,Cc=0,Rc=0,Sc=0,Qc=0,Mc=0;
+  comps.forEach(c => {
+    const v = c.value || '???'; const t = c.type;
+    const n1 = c.node_anode || 1; const n2 = c.node_cathode || 0;
+    const tr = c.terminals;
+    if      (t === 'source')                                   lines.push(`V${++Vc} ${n1} ${n2} DC ${v}`);
+    else if (['switch','push_button'].includes(t))             lines.push(`S${++Sc} ${n1} ${n2} ctrl${Sc} 0 SW_IDEAL`);
+    else if (t === 'diode')                                    lines.push(`D${++Dc} ${n1} ${n2} DIODE_MODEL`);
+    else if (t === 'inductor')                                 lines.push(`L${++Lc} ${n1} ${n2} ${v}`);
+    else if (t === 'capacitor')                                lines.push(`C${++Cc} ${n1} ${n2} ${v} IC=0`);
+    else if (t === 'resistor')                                 lines.push(`R${++Rc} ${n1} ${n2} ${v}`);
+    else if (t === 'bjt' && tr)                                lines.push(`Q${++Qc} ${tr.collector} ${tr.base} ${tr.emitter} NPN_GENERIC`);
+    else if (t === 'mosfet' && tr)                             lines.push(`M${++Mc} ${tr.drain} ${tr.gate} ${tr.source} ${tr.source} NMOS_GENERIC`);
+    else                                                       lines.push(`* ${c.label} (${t}) n${n1}-n${n2}`);
+  });
+  lines.push('', '.tran 1n 5m', '.options RELTOL=1e-3', '.end');
+  return lines;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// GRADE MODE
+// ═══════════════════════════════════════════════════════════════════════════
+
+let refResult  = null;   // full /analyze result for reference circuit
+let stuResult  = null;   // full /analyze result for student circuit
+let refB64     = null;
+let stuB64     = null;
+let lastGrade  = null;
+
+function setMode(mode) {
+  document.getElementById('analyzeMode').classList.toggle('hidden', mode !== 'analyze');
+  document.getElementById('gradeMode').classList.toggle('hidden',   mode !== 'grade');
+  document.getElementById('modeAnalyzeBtn').classList.toggle('active', mode === 'analyze');
+  document.getElementById('modeGradeBtn').classList.toggle('active',   mode === 'grade');
+  document.getElementById('modePill').textContent = mode === 'analyze' ? '5-stage pipeline' : 'equivalence grader';
+  if (mode === 'grade') _checkLoadSavedRef();
+}
+
+// ── File handling for grade slots ─────────────────────────────────────────
+function _setupGradeSlot(inputId, dropId, previewWraoId, previewImgId, dropTextId, b64Setter) {
+  const input = document.getElementById(inputId);
+  const drop  = document.getElementById(dropId);
+  input.addEventListener('change', e => { const f = e.target.files[0]; if (f) _loadGradeFile(f, previewWraoId, previewImgId, dropTextId, b64Setter); });
+  drop.addEventListener('dragover',  e => { e.preventDefault(); drop.classList.add('over'); });
+  drop.addEventListener('dragleave', e => { if (!drop.contains(e.relatedTarget)) drop.classList.remove('over'); });
+  drop.addEventListener('drop', e => {
+    e.preventDefault(); drop.classList.remove('over');
+    const f = e.dataTransfer.files[0]; if (f) _loadGradeFile(f, previewWraoId, previewImgId, dropTextId, b64Setter);
+  });
+}
+
+function _loadGradeFile(file, wrapId, imgId, textId, b64Setter) {
+  if (!file.type.startsWith('image/')) return;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    const dataUrl = ev.target.result;
+    b64Setter(dataUrl.split(',')[1]);
+    document.getElementById(imgId).src = dataUrl;
+    document.getElementById(wrapId).classList.remove('hidden');
+    document.getElementById(textId).textContent = '✓ ' + file.name;
+  };
+  reader.readAsDataURL(file);
+}
+
+_setupGradeSlot('refFileInput','refDropZone','refPreviewWrap','refPreviewImg','refDropText', v => {
+  refB64 = v; refResult = null;
+  document.getElementById('refAnalyzeBtn').classList.remove('hidden');
+  document.getElementById('saveRefBtn').classList.add('hidden');
+  document.getElementById('refSummary').classList.add('hidden');
+  document.getElementById('refSlot').classList.add('has-data');
+  _updateGradeBtn();
+});
+
+_setupGradeSlot('stuFileInput','stuDropZone','stuPreviewWrap','stuPreviewImg','stuDropText', v => {
+  stuB64 = v; stuResult = null;
+  document.getElementById('stuAnalyzeBtn').classList.remove('hidden');
+  document.getElementById('stuSummary').classList.add('hidden');
+  document.getElementById('stuSlot').classList.add('has-data');
+  _updateGradeBtn();
+});
+
+// ── Analyze reference ─────────────────────────────────────────────────────
+async function analyzeReference() {
+  if (!refB64) return;
+  _setBtnLoading('refBtnIcon','refBtnText','refAnalyzeBtn','Analyzing…','▶','Analyze reference');
+  try {
+    const data = await _analyzeImage(refB64);
+    refResult = data;
+    document.getElementById('refSummary').innerHTML = _slotSummary(data);
+    document.getElementById('refSummary').classList.remove('hidden');
+    document.getElementById('saveRefBtn').classList.remove('hidden');
+  } catch(e) { alert('Reference analysis error: ' + e.message); }
+  finally { _setBtnLoading('refBtnIcon','refBtnText','refAnalyzeBtn',null,'▶','Analyze reference'); }
+  _updateGradeBtn();
+}
+
+async function analyzeStudent() {
+  if (!stuB64) return;
+  _setBtnLoading('stuBtnIcon','stuBtnText','stuAnalyzeBtn','Analyzing…','▶','Analyze student circuit');
+  try {
+    const data = await _analyzeImage(stuB64);
+    stuResult = data;
+    document.getElementById('stuSummary').innerHTML = _slotSummary(data);
+    document.getElementById('stuSummary').classList.remove('hidden');
+  } catch(e) { alert('Student analysis error: ' + e.message); }
+  finally { _setBtnLoading('stuBtnIcon','stuBtnText','stuAnalyzeBtn',null,'▶','Analyze student circuit'); }
+  _updateGradeBtn();
+}
+
+async function _analyzeImage(b64) {
+  const res = await fetch('/analyze', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ image_b64: b64 })
+  });
+  const data = await res.json();
+  if (!res.ok || data.error) throw new Error(data.error || 'Server error');
+  return data;
+}
+
+function _slotSummary(data) {
+  const comps = data.components || [];
+  const types = [...new Set(comps.map(c => c.type))].filter(t => !['ground','vcc','unknown'].includes(t));
+  return `<span class="fb-ok">✓ Analyzed</span> · ${comps.length} components · ${data.nodes?.length||0} nodes<br>
+    Types: ${types.join(', ') || '—'}`;
+}
+
+// ── Save / load reference ─────────────────────────────────────────────────
+async function saveReference() {
+  if (!refResult) return;
+  try {
+    const res  = await fetch('/save_reference', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(refResult)
+    });
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error);
+    document.getElementById('refSavedBadge').classList.remove('hidden');
+    document.getElementById('saveRefBtn').textContent = '✓ Saved';
+  } catch(e) { alert('Save failed: ' + e.message); }
+}
+
+async function _checkLoadSavedRef() {
+  try {
+    const res  = await fetch('/load_reference');
+    const data = await res.json();
+    if (data.reference) {
+      refResult = data.reference;
+      document.getElementById('refSavedBadge').classList.remove('hidden');
+      document.getElementById('refSummary').innerHTML =
+        `<span class="fb-ok">✓ Loaded saved reference</span> · ${data.reference.components?.length||0} components · saved ${data.reference.saved_at||''}`;
+      document.getElementById('refSummary').classList.remove('hidden');
+      document.getElementById('refSlot').classList.add('has-data');
+      _updateGradeBtn();
+    }
+  } catch(_) {}
+}
+
+function _updateGradeBtn() {
+  const ready = refResult && stuResult;
+  document.getElementById('gradeBtn').disabled = !ready;
+  document.getElementById('gradeHint').textContent = ready
+    ? 'Ready to grade'
+    : (!refResult ? 'Analyze reference circuit first' : 'Analyze student circuit first');
+}
+
+// ── Grade ─────────────────────────────────────────────────────────────────
+async function gradeCircuits() {
+  if (!refResult || !stuResult) return;
+  _setBtnLoading('gradeBtnIcon','gradeBtnText','gradeBtn','Grading…','⚖','Grade student circuit');
+  try {
+    const res  = await fetch('/compare', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ student: stuResult, reference: refResult })
+    });
+    const data = await res.json();
+    if (!res.ok || data.error) throw new Error(data.error || 'Server error');
+    lastGrade = data;
+    renderGradeResults(data);
+    document.getElementById('gradeResults').classList.remove('hidden');
+    document.getElementById('gradeResults').scrollIntoView({ behavior:'smooth', block:'start' });
+  } catch(e) { alert('Grading error: ' + e.message); }
+  finally { _setBtnLoading('gradeBtnIcon','gradeBtnText','gradeBtn',null,'⚖','Grade student circuit'); }
+}
+
+// ── Render grade results ───────────────────────────────────────────────────
+function renderGradeResults(data) {
+  const { total_score, grade, scores, weights, feedback } = data;
+
+  // Badge
+  const badge = document.getElementById('gradeBadge');
+  badge.textContent = grade;
+  const gradeColor = total_score >= 90 ? 'var(--green)' : total_score >= 70 ? 'var(--blue)' : total_score >= 60 ? 'var(--orange)' : 'var(--red)';
+  badge.style.borderColor = gradeColor;
+  badge.style.color       = gradeColor;
+  badge.style.background  = gradeColor.replace(')', ',.08)').replace('var','rgba').replace(/var\(([^)]+)\)/,(_,v)=>gradeColor);
+  document.getElementById('gradeTotalLabel').textContent = `${total_score} / 100`;
+
+  // Criteria bars
+  const CRIT_LABELS = {
+    component_types:  'Component types',
+    component_counts: 'Component counts',
+    component_values: 'Component values',
+    topology:         'Topology / wiring',
+    simulation:       'Simulation match',
+  };
+  document.getElementById('criteriaRows').innerHTML = Object.keys(weights).map(k => {
+    const sc  = scores[k] ?? 0;
+    const col = sc >= 80 ? '#2ee8a0' : sc >= 60 ? '#5ba4f5' : sc >= 40 ? '#e07b39' : '#f06060';
+    return `<div class="criterion-row">
+      <div class="crit-name">${CRIT_LABELS[k]}</div>
+      <div class="crit-bar-wrap"><div class="crit-bar" style="width:${sc}%;background:${col}"></div></div>
+      <div class="crit-score" style="color:${col}">${sc}</div>
+      <div class="crit-weight">×${weights[k]}%</div>
+    </div>`;
+  }).join('');
+
+  // Inventory tab
+  const inv = feedback.component_types;
+  const cnt = feedback.component_counts;
+  let invHtml = `<div class="feedback-detail" style="margin-bottom:10px">`;
+  invHtml += `<div><strong>Reference:</strong> ${Object.entries(inv.ref_inventory).map(([t,n])=>`${n}× ${t}`).join(', ') || '—'}</div>`;
+  invHtml += `<div><strong>Student: </strong> ${Object.entries(inv.student_inventory).map(([t,n])=>`${n}× ${t}`).join(', ') || '—'}</div>`;
+  if (inv.missing.length) invHtml += `<div class="fb-err">Missing types: ${inv.missing.join(', ')}</div>`;
+  if (inv.extra.length)   invHtml += `<div class="fb-warn">Extra types: ${inv.extra.join(', ')}</div>`;
+  invHtml += `</div>`;
+  invHtml += `<div class="feedback-detail">`;
+  Object.entries(cnt.detail).forEach(([t, v]) => {
+    invHtml += `<div class="${v === '✓' ? 'fb-ok' : 'fb-warn'}">${t}: ${v}</div>`;
+  });
+  invHtml += `</div>`;
+  document.getElementById('fbInventory').innerHTML = invHtml;
+
+  // Values tab
+  const val = feedback.component_values;
+  let valHtml = `<div class="feedback-detail">`;
+  valHtml += `<div style="margin-bottom:6px">Matched: <strong>${val.matched} / ${val.total}</strong></div>`;
+  if (val.detail.length === 0) {
+    valHtml += `<div class="fb-warn">No components with values to compare.</div>`;
+  } else {
+    val.detail.forEach(d => {
+      const ok = d.ok;
+      valHtml += `<div class="${ok ? 'fb-ok' : 'fb-err'}">${d.type}: ref=${_fmtVal(d.ref)}, student=${_fmtVal(d.student)} ${ok ? '✓' : '✗'}</div>`;
+    });
+  }
+  valHtml += `</div>`;
+  document.getElementById('fbValues').innerHTML = valHtml;
+
+  // Topology tab
+  const topo = feedback.topology;
+  let topoHtml = `<div class="feedback-detail">`;
+  topoHtml += `<div class="${topo.isomorphic ? 'fb-ok' : 'fb-warn'}" style="font-size:12px;margin-bottom:8px">
+    ${topo.isomorphic ? '✓ Graphs are isomorphic — identical topology' : '✗ Topology differs'}
+  </div>`;
+  topoHtml += `<div>Method: ${topo.method}</div>`;
+  topoHtml += `<div>Reference: ${topo.ref_nodes} nodes, ${topo.ref_edges} edges</div>`;
+  topoHtml += `<div class="${topo.node_diff > 0 ? 'fb-warn' : 'fb-ok'}">Student: ${topo.stu_nodes} nodes, ${topo.stu_edges} edges`;
+  if (topo.node_diff > 0) topoHtml += ` (${topo.node_diff} node${topo.node_diff>1?'s':''} off)`;
+  if (topo.edge_diff > 0) topoHtml += ` (${topo.edge_diff} edge${topo.edge_diff>1?'s':''} off)`;
+  topoHtml += `</div></div>`;
+  document.getElementById('fbTopology').innerHTML = topoHtml;
+
+  // Simulation tab
+  const sim = feedback.simulation;
+  let simHtml = `<div class="feedback-detail">`;
+  if (!sim.available) {
+    simHtml += `<div class="fb-warn">${sim.reason}</div>`;
+  } else {
+    simHtml += `<div>Simulation mode: ${sim.sim_mode}</div>`;
+    simHtml += `<div class="${sim.vout_err_pct <= 10 ? 'fb-ok' : sim.vout_err_pct <= 25 ? 'fb-warn' : 'fb-err'}">
+      V_out — ref: ${sim.ref_Vout?.toFixed(3)}V, student: ${sim.stu_Vout?.toFixed(3)}V (${sim.vout_err_pct}% error)
+    </div>`;
+    simHtml += `<div class="${sim.eff_err_pct <= 10 ? 'fb-ok' : sim.eff_err_pct <= 25 ? 'fb-warn' : 'fb-err'}">
+      Efficiency — ref: ${(sim.ref_eff*100).toFixed(1)}%, student: ${(sim.stu_eff*100).toFixed(1)}% (${sim.eff_err_pct}% error)
+    </div>`;
+  }
+  simHtml += `</div>`;
+  document.getElementById('fbSimulation').innerHTML = simHtml;
+
+  // Overlays tab
+  let overlayHtml = '';
+  if (refResult?.overlay_b64) {
+    overlayHtml += `<div><div style="font-size:10px;color:var(--muted);margin-bottom:6px">Reference</div>
+      <img src="data:image/jpeg;base64,${refResult.overlay_b64}" style="width:100%;border-radius:7px;border:.5px solid var(--border)"></div>`;
+  }
+  if (stuResult?.overlay_b64) {
+    overlayHtml += `<div><div style="font-size:10px;color:var(--muted);margin-bottom:6px">Student</div>
+      <img src="data:image/jpeg;base64,${stuResult.overlay_b64}" style="width:100%;border-radius:7px;border:.5px solid var(--border)"></div>`;
+  }
+  document.getElementById('fbOverlays').innerHTML = overlayHtml || '<div class="fb-warn">No overlays available</div>';
+
+  // Graphs tab — draw both circuit graphs side by side
+  if (refResult && stuResult) {
+    setTimeout(() => {
+      _drawMiniGraph('refGraphCanvas', refResult.components || [], refResult.nodes || []);
+      _drawMiniGraph('stuGraphCanvas', stuResult.components || [], stuResult.nodes || []);
+    }, 50);
+  }
+  const topo2 = data.feedback.topology;
+  document.getElementById('graphDiffSummary').innerHTML =
+    `<span class="${topo2.isomorphic ? 'fb-ok' : 'fb-warn'}">${topo2.isomorphic ? '✓ Graphs are isomorphic' : '✗ Graphs differ'}</span>` +
+    `  ·  Reference: ${topo2.ref_nodes} nodes, ${topo2.ref_edges} edges` +
+    `  ·  Student: ${topo2.stu_nodes} nodes, ${topo2.stu_edges} edges` +
+    (topo2.node_diff > 0 ? `  <span class="fb-warn">(Δ${topo2.node_diff} nodes, Δ${topo2.edge_diff} edges)</span>` : '');
+}
+
+function _drawMiniGraph(canvasId, components, nodes) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+  const dpr = window.devicePixelRatio || 1;
+  const cw  = canvas.offsetWidth || 300;
+  const ch  = 260;
+  canvas.width  = cw * dpr;
+  canvas.height = ch * dpr;
+  canvas.style.height = ch + 'px';
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, cw, ch);
+
+  if (!nodes.length && !components.length) {
+    ctx.fillStyle = '#7a7d8a'; ctx.font = '11px monospace'; ctx.textAlign = 'center';
+    ctx.fillText('No graph data', cw/2, ch/2); return;
+  }
+
+  // Build position map: use existing node positions or force-layout
+  const idSet = new Set();
+  components.forEach(c => {
+    const ns = c.terminals ? Object.values(c.terminals) : [c.node_anode, c.node_cathode];
+    ns.forEach(n => { if (n != null) idSet.add(n); });
+  });
+  const idArr = [...idSet].sort((a, b) => a - b);
+  const nodeMap = {};
+  nodes.forEach(n => { nodeMap[n.id] = n; });
+
+  // Layout: use image positions if available, else circle
+  const pos = {};
+  const pad = 30;
+  idArr.forEach((id, i) => {
+    if (nodeMap[id]) {
+      pos[id] = { x: pad + nodeMap[id].x * (cw - pad*2), y: pad + nodeMap[id].y * (ch - pad*2) };
+    } else {
+      const angle = (i / idArr.length) * Math.PI * 2 - Math.PI/2;
+      pos[id] = { x: cw/2 + Math.cos(angle) * (Math.min(cw,ch)/2 - pad), y: ch/2 + Math.sin(angle) * (Math.min(cw,ch)/2 - pad) };
+    }
+  });
+
+  // Draw edges
+  components.forEach(c => {
+    const col = (COMP_COLORS[c.type] || '#888') + 'aa';
+    const ns  = c.terminals ? Object.values(c.terminals) : [c.node_anode, c.node_cathode];
+    const valid = ns.filter(n => n != null && pos[n]);
+    for (let i = 0; i < valid.length; i++) for (let j = i+1; j < valid.length; j++) {
+      const p1 = pos[valid[i]], p2 = pos[valid[j]];
+      ctx.strokeStyle = col; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y); ctx.stroke();
+      // Label at midpoint
+      const mx = (p1.x+p2.x)/2, my = (p1.y+p2.y)/2;
+      ctx.font = '8px monospace'; ctx.fillStyle = col; ctx.textAlign = 'center';
+      ctx.fillText(c.label, mx, my - 3);
+    }
+  });
+
+  // Draw nodes
+  idArr.forEach(id => {
+    const p = pos[id]; if (!p) return;
+    ctx.beginPath(); ctx.arc(p.x, p.y, id === 0 ? 6 : 9, 0, Math.PI*2);
+    ctx.fillStyle = id === 0 ? '#0d1a15' : '#1a1d26'; ctx.fill();
+    ctx.strokeStyle = id === 0 ? '#2ee8a0' : '#5ba4f5'; ctx.lineWidth = 1.5; ctx.stroke();
+    ctx.fillStyle   = id === 0 ? '#2ee8a0' : '#e8e9ec';
+    ctx.font = `bold ${id===0?7:8}px monospace`; ctx.textAlign = 'center';
+    ctx.fillText(id === 0 ? '⏚' : String(id), p.x, p.y + 3);
+  });
+}
+
+function _fmtVal(v) {
+  if (v === null || v === undefined) return '—';
+  if (v >= 1e6)  return (v/1e6).toFixed(2) + 'M';
+  if (v >= 1e3)  return (v/1e3).toFixed(2) + 'k';
+  if (v >= 1)    return v.toFixed(3);
+  if (v >= 1e-3) return (v*1e3).toFixed(2) + 'm';
+  if (v >= 1e-6) return (v*1e6).toFixed(2) + 'µ';
+  if (v >= 1e-9) return (v*1e9).toFixed(2) + 'n';
+  return (v*1e12).toFixed(2) + 'p';
+}
+
+function switchGradeTab(name) {
+  const names = ['inventory','values','topology','simulation','graphs','overlays'];
+  document.querySelectorAll('#gradeResults .tab').forEach((t, i) => t.classList.toggle('active', names[i] === name));
+  names.forEach(n => {
+    const el = document.getElementById('gtab-' + n);
+    if (el) el.classList.toggle('active', n === name);
+  });
+  if (name === 'graphs' && refResult && stuResult) {
+    setTimeout(() => {
+      _drawMiniGraph('refGraphCanvas', refResult.components || [], refResult.nodes || []);
+      _drawMiniGraph('stuGraphCanvas', stuResult.components || [], stuResult.nodes || []);
+    }, 20);
+  }
+}
+
+// ── Rubric editor ─────────────────────────────────────────────────────────
+const DEFAULT_WEIGHTS = {
+  component_types: 20, component_counts: 15,
+  component_values: 20, topology: 30, simulation: 15,
+};
+const CRIT_LABELS = {
+  component_types:  'Component types',
+  component_counts: 'Component counts',
+  component_values: 'Component values',
+  topology:         'Topology / wiring',
+  simulation:       'Simulation match',
+};
+let currentWeights = { ...DEFAULT_WEIGHTS };
+
+function buildRubricEditor() {
+  document.getElementById('rubricEditor').innerHTML = Object.keys(DEFAULT_WEIGHTS).map(k => `
+    <div class="rubric-row">
+      <div class="rubric-label">${CRIT_LABELS[k]}</div>
+      <input class="rubric-input" id="rw_${k}" type="number" min="0" max="100" value="${currentWeights[k]}"
+             oninput="onWeightChange()">
+      <span style="font-size:10px;color:var(--muted)">%</span>
+      <div class="rubric-bar"><div class="rubric-bar-fill" id="rb_${k}" style="width:${currentWeights[k]}%"></div></div>
+    </div>`).join('');
+}
+
+function onWeightChange() {
+  let total = 0;
+  Object.keys(DEFAULT_WEIGHTS).forEach(k => {
+    const v = parseInt(document.getElementById('rw_' + k)?.value || 0);
+    currentWeights[k] = isNaN(v) ? 0 : v;
+    total += currentWeights[k];
+    const bar = document.getElementById('rb_' + k);
+    if (bar) bar.style.width = Math.min(currentWeights[k], 100) + '%';
+  });
+  const lbl = document.getElementById('weightTotal');
+  lbl.textContent = `Total: ${total}%`;
+  lbl.style.color = total === 100 ? 'var(--accent)' : 'var(--orange)';
+}
+
+function resetWeights() {
+  currentWeights = { ...DEFAULT_WEIGHTS };
+  buildRubricEditor();
+  onWeightChange();
+}
+
+// ── Export single report ──────────────────────────────────────────────────
+async function exportReport() {
+  if (!lastGrade) return;
+  try {
+    const res  = await fetch('/export_report', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ grade_result: lastGrade, student_name: 'Student' })
+    });
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error);
+    _downloadText(data.report_text, 'grade_report.txt');
+  } catch(e) { alert('Export error: ' + e.message); }
+}
+
+function _downloadText(text, filename) {
+  const blob = new Blob([text], { type: 'text/plain' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename; a.click();
+}
+
+// ── Batch grading ─────────────────────────────────────────────────────────
+let batchStudents = [];   // [{id, name, b64, result}]
+let batchCounter  = 0;
+let lastBatchData = null;
+
+function addBatchStudent() {
+  const id = ++batchCounter;
+  batchStudents.push({ id, name: `Student ${id}`, b64: null, result: null });
+  renderBatchList();
+}
+
+function renderBatchList() {
+  document.getElementById('batchStudentList').innerHTML = batchStudents.map(s => `
+    <div class="batch-student-row" id="brow_${s.id}">
+      <input class="batch-name-input" value="${s.name}" placeholder="Student name"
+             oninput="batchStudents.find(x=>x.id===${s.id}).name=this.value">
+      <input type="file" id="bfile_${s.id}" accept="image/*" style="display:none"
+             onchange="loadBatchFile(${s.id}, this.files[0])">
+      <button class="btn btn-sm" onclick="document.getElementById('bfile_${s.id}').click()">
+        ${s.b64 ? (s.result ? '<span style="color:var(--accent)">✓ analyzed</span>' : '<span style="color:var(--orange)">image loaded</span>') : 'Upload image'}
+      </button>
+      ${s.b64 && !s.result ? `<button class="btn btn-sm" onclick="analyzeBatchStudent(${s.id})">Analyze</button>` : ''}
+      <button class="btn btn-sm" onclick="removeBatchStudent(${s.id})" style="color:var(--red)">✕</button>
+    </div>`).join('');
+  document.getElementById('batchGradeBtn').disabled = !(refResult && batchStudents.some(s => s.result));
+}
+
+function removeBatchStudent(id) {
+  batchStudents = batchStudents.filter(s => s.id !== id);
+  renderBatchList();
+}
+
+function loadBatchFile(id, file) {
+  if (!file || !file.type.startsWith('image/')) return;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    const s = batchStudents.find(x => x.id === id);
+    if (s) { s.b64 = ev.target.result.split(',')[1]; s.result = null; renderBatchList(); }
+  };
+  reader.readAsDataURL(file);
+}
+
+async function analyzeBatchStudent(id) {
+  const s = batchStudents.find(x => x.id === id);
+  if (!s || !s.b64) return;
+  const btn = document.querySelector(`#brow_${id} .btn`);
+  if (btn) btn.textContent = 'Analyzing…';
+  try {
+    s.result = await _analyzeImage(s.b64);
+    renderBatchList();
+  } catch(e) { alert(`Error analyzing ${s.name}: ` + e.message); }
+}
+
+async function runBatchGrade() {
+  if (!refResult) { alert('No reference circuit. Analyze a reference first.'); return; }
+  const ready = batchStudents.filter(s => s.result);
+  if (!ready.length) { alert('No students analyzed yet.'); return; }
+
+  document.getElementById('batchGradeBtn').disabled = true;
+  document.getElementById('batchGradeBtn').textContent = 'Grading…';
+
+  try {
+    const res  = await fetch('/batch_grade', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        reference: refResult,
+        students:  ready.map(s => ({ name: s.name, result: s.result })),
+        weights:   currentWeights,
+      })
+    });
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error);
+    lastBatchData = data;
+    renderBatchResults(data);
+    document.getElementById('batchResults').classList.remove('hidden');
+    document.getElementById('batchExportBtn').style.display = '';
+  } catch(e) { alert('Batch grade error: ' + e.message); }
+  finally {
+    document.getElementById('batchGradeBtn').disabled = false;
+    document.getElementById('batchGradeBtn').textContent = '⚖ Grade all';
+  }
+}
+
+function renderBatchResults(data) {
+  const { results, summary } = data;
+
+  // Summary bar
+  const dist = summary.distribution || {};
+  const gradeOrder = ['A','B','C','D','F'];
+  const gradeColors = { A:'#2ee8a0', B:'#5ba4f5', C:'#b57af7', D:'#e07b39', F:'#f06060' };
+  document.getElementById('batchSummaryBar').innerHTML = `
+    <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:10px">
+      <div class="feedback-detail" style="display:flex;gap:16px;flex-wrap:wrap">
+        <span>Students: <strong>${summary.graded}</strong></span>
+        <span>Average: <strong>${summary.avg}</strong></span>
+        <span>High: <strong>${summary.highest}</strong></span>
+        <span>Low: <strong>${summary.lowest}</strong></span>
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      ${gradeOrder.filter(g => dist[g]).map(g =>
+        `<span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;background:${gradeColors[g]}22;border:.5px solid ${gradeColors[g]}55;padding:3px 10px;border-radius:5px;color:${gradeColors[g]}">
+          <strong>${g}</strong>: ${dist[g]}
+        </span>`).join('')}
+    </div>`;
+
+  // Result rows
+  const sorted = [...results].sort((a, b) => (b.total_score || 0) - (a.total_score || 0));
+  document.getElementById('batchResultRows').innerHTML = sorted.map(r => {
+    if (r.error) return `<div class="batch-result-row"><span class="fb-err">${r.name}: ${r.error}</span></div>`;
+    const col = r.total_score >= 90 ? '#2ee8a0' : r.total_score >= 70 ? '#5ba4f5' : r.total_score >= 60 ? '#e07b39' : '#f06060';
+    const breakdown = Object.keys(DEFAULT_WEIGHTS).map(k =>
+      `<span style="color:var(--muted)">${CRIT_LABELS[k].split(' ')[0]}: <span style="color:${r.scores[k]>=70?'var(--accent)':'var(--orange)'}">${r.scores[k]}</span></span>`
+    ).join('  ');
+    return `<div class="batch-result-row">
+      <div class="batch-grade-pill" style="background:${col}22;border:.5px solid ${col};color:${col}">${r.grade}</div>
+      <div style="width:120px;font-weight:600">${r.name}</div>
+      <div class="batch-score-bar-wrap"><div class="batch-score-bar" style="width:${r.total_score}%;background:${col}"></div></div>
+      <div style="width:36px;font-weight:600;color:${col}">${r.total_score}</div>
+      <div style="flex:1;font-size:10px">${breakdown}</div>
+    </div>`;
+  }).join('');
+}
+
+async function exportBatchReport() {
+  if (!lastBatchData) return;
+  try {
+    const res  = await fetch('/export_report', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ batch_results: lastBatchData.results, summary: lastBatchData.summary })
+    });
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error);
+    _downloadText(data.report_text, 'batch_grade_report.txt');
+  } catch(e) { alert('Export error: ' + e.message); }
+}
+
+function _setBtnLoading(iconId, textId, btnId, loadingText, idleIcon, idleText) {
+  if (loadingText) {
+    document.getElementById(iconId).textContent = '';
+    document.getElementById(textId).textContent = loadingText;
+    document.getElementById(btnId).disabled = true;
+    const sp = document.createElement('span');
+    sp.className = 'spinner'; sp.id = btnId + '_spinner';
+    document.getElementById(btnId).insertBefore(sp, document.getElementById(btnId).firstChild);
+  } else {
+    document.getElementById(iconId).textContent = idleIcon;
+    document.getElementById(textId).textContent = idleText;
+    document.getElementById(btnId).disabled = false;
+    document.getElementById(btnId + '_spinner')?.remove();
+  }
+}
+
+// Init rubric on page load
+buildRubricEditor();
+onWeightChange();
+</script>
+</body>
+</html>
